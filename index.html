@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HLS Video Player</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 2rem;
+            background: #222;
+            color: white;
+            text-align: center;
+        }
+        video {
+            width: 80%;
+            max-width: 720px;
+            height: auto;
+            background: black;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>HLS Video Streaming Demo</h1>
+
+<video id="video" controls autoplay></video>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script>
+    // Replace {videoId} below with your actual video ID/path used in MinIO
+    const videoId = "3f365910-3f44-44e3-a9f1-00e5d2ce704c_5721849-uhd_3840_2160_30fps";
+
+    if (Hls.isSupported()) {
+        var video = document.getElementById('video');
+        var hls = new Hls();
+        hls.loadSource(`http://localhost:8080/file/${videoId}/playlist.m3u8`);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+            video.play();
+        });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native HLS support (Safari)
+        video.src = `http://localhost:8080/stream/${videoId}/playlist.m3u8`;
+        video.addEventListener('loadedmetadata', function() {
+            video.play();
+        });
+    } else {
+        alert("HLS is not supported in this browser.");
+    }
+</script>
+
+</body>
+</html>
