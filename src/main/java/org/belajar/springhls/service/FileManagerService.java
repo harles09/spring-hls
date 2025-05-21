@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.belajar.springhls.config.MinioUtils;
+import org.belajar.springhls.dto.request.RequestFileManager;
 import org.belajar.springhls.model.FileManager;
 import org.belajar.springhls.repository.FileManagerRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -61,7 +62,6 @@ public class FileManagerService {
 
             byte[] bytes = stream.readAllBytes();
 
-            // Determine content type by extension
             String contentType;
             if (fileName.endsWith(".m3u8")) {
                 contentType = "application/vnd.apple.mpegurl";
@@ -76,35 +76,31 @@ public class FileManagerService {
         }
     }
 
-    public String handleUpload(MultipartFile file) throws Exception {
-        String originalFilename = file.getOriginalFilename();
+    public String handleUpload(RequestFileManager request) throws Exception {
+        String originalFilename = request.getFile().getOriginalFilename();
         String fileName = UUID.randomUUID() + "_" + originalFilename;
 
 
         FileManager fileManager = new FileManager();
         fileManager.setFileName(fileName);
+        fileManager.setUploadedBy(request.getUploadedBy());
+        fileManager.setDescription(request.getDescription());
         fileManager.setUploadTime(LocalDateTime.now());
         fileManager.setFilePath(fileName.replace(".mp4", "") + "/playlist.m3u8"); // example path
-
-
         fileRepository.save(fileManager);
 
-        // Create temp directory and save uploaded file
         Path tempDir = Files.createTempDirectory("video-upload");
         File inputFile = tempDir.resolve(originalFilename).toFile();
-        file.transferTo(inputFile);  // Save file locally
+        request.getFile().transferTo(inputFile);
 
-        // Create HLS output directory
         Path hlsOutputDir = tempDir.resolve("hls");
         Files.createDirectories(hlsOutputDir);
 
-        // Convert video to HLS format
         String result = convertToHLS(inputFile, hlsOutputDir.toFile());
         if (result.equalsIgnoreCase("FFmpeg conversion failed")) {
             return "Failed";
         }
 
-        // Upload HLS files (.m3u8 and .ts) to MinIO
         File[] hlsFiles = hlsOutputDir.toFile().listFiles();
         if (hlsFiles != null) {
             for (File hlsFile : hlsFiles) {

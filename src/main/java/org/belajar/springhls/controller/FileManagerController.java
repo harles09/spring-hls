@@ -20,7 +20,7 @@ public class FileManagerController {
             return ResponseEntity.badRequest().body("File is missing or empty");
         }
         try {
-            String savedFile = fileManagerService.handleUpload(request.getFile());
+            String savedFile = fileManagerService.handleUpload(request);
             return ResponseEntity.ok(savedFile);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
