@@ -3,14 +3,17 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>HLS Video Player</title>
+    <title>Encrypted HLS Streaming Demo</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             margin: 2rem;
             background: #222;
-            color: white;
+            color: #fff;
             text-align: center;
+        }
+        h1 {
+            margin-bottom: 1rem;
         }
         video {
             width: 80%;
@@ -18,38 +21,94 @@
             height: auto;
             background: black;
             border-radius: 8px;
+            margin-top: 1rem;
+        }
+        .log {
+            margin-top: 1rem;
+            color: #0f0;
+            font-size: 0.9rem;
+            text-align: left;
+            white-space: pre-wrap;
+            background: #111;
+            padding: 0.5rem;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
         }
     </style>
 </head>
 <body>
 
-<h1>HLS Video Streaming Demo</h1>
+<h1>Encrypted HLS Streaming Demo</h1>
+<video id="video" controls autoplay muted crossorigin="anonymous"></video>
 
-<video id="video" controls autoplay></video>
+<!-- Logging area for debugging playlist, key, and segment requests -->
+<div class="log" id="log"></div>
 
+<!-- Include hls.js from CDN -->
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
-    // Replace {videoId} below with your actual video ID/path used in MinIO
-    const videoId = "3f365910-3f44-44e3-a9f1-00e5d2ce704c_5721849-uhd_3840_2160_30fps";
+    const rawVideoId = "a21603fc-a628-47ca-b799-efd71641dfdb_RACINGBULLS";
+    const videoId   = encodeURIComponent(rawVideoId);
+    const playlistUrl = `http://localhost:8080/file/videos/${videoId}/playlist.m3u8`;
+
+    const logEl = document.getElementById("log");
+    function log(msg) {
+        logEl.textContent += msg + "\n";
+    }
+
+    const videoEl = document.getElementById("video");
 
     if (Hls.isSupported()) {
-        var video = document.getElementById('video');
-        var hls = new Hls();
-        hls.loadSource(`http://localhost:8080/file/${videoId}/playlist.m3u8`);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, function() {
-            video.play();
+        const hls = new Hls({
+            maxBufferLength: 60,               // allow up to 60s of buffer
+            enableBufferStalledRecovery: true, // try auto-recover
+            maxBufferHole: 2,                  // tolerate small gaps
+            xhrSetup: (xhr, url) => {
+                log(`XHR → ${url}`);
+            }
         });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native HLS support (Safari)
-        video.src = `http://localhost:8080/stream/${videoId}/playlist.m3u8`;
-        video.addEventListener('loadedmetadata', function() {
-            video.play();
+
+        hls.loadSource(playlistUrl);
+        hls.attachMedia(videoEl);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            log("Manifest parsed; attempting playback…");
+            videoEl.play().catch(err => {
+                log(`play() failed: ${err.name} – ${err.message}`);
+            });
         });
-    } else {
-        alert("HLS is not supported in this browser.");
+
+        hls.on(Hls.Events.KEY_LOADING, (_, data) => {
+            log(`Loading key → ${data.frag.decryptdata.uri}`);
+        });
+
+        hls.on(Hls.Events.ERROR, (_ev, data) => {
+            log(
+                `HLS.js error:\n` +
+                `  type:    ${data.type}\n` +
+                `  details: ${data.details}\n` +
+                `  fatal:   ${data.fatal}\n` +
+                `  frag URL: ${data.frag?.url || "n/a"}\n` +
+                `  response URL: ${data.response?.url || "n/a"}`
+            );
+            console.error("HLS.js error event:", data);
+        });
+    }
+    else if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
+        videoEl.src = playlistUrl;
+        videoEl.addEventListener("loadedmetadata", () => {
+            log("Native HLS support; attempting playback…");
+            videoEl.play().catch(err => {
+                log(`Native play() failed: ${err.name} – ${err.message}`);
+            });
+        });
+    }
+    else {
+        alert("HLS not supported in this browser.");
     }
 </script>
+
 
 </body>
 </html>

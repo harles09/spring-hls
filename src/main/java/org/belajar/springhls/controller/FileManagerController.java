@@ -2,7 +2,6 @@ package org.belajar.springhls.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.belajar.springhls.dto.request.RequestFileManager;
-import org.belajar.springhls.model.FileManager;
 import org.belajar.springhls.service.FileManagerService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -27,10 +26,22 @@ public class FileManagerController {
         }
     }
 
-    @GetMapping("/{videoId}/{fileName:.+}")
-    public ResponseEntity<byte[]> streamHlsFile(
+    @GetMapping("/videos/{videoId}/{fileName:.+}")
+    public ResponseEntity<Object> streamHlsFile(
             @PathVariable String videoId,
             @PathVariable String fileName) throws Exception {
             return fileManagerService.downloadFile(videoId, fileName);
-        }
+    }
+
+    @GetMapping("/key/{keyName:.+}")
+    public ResponseEntity<Void> streamHlsFile(
+            @PathVariable String keyName) throws Exception {
+        return fileManagerService.downloadKey(keyName);
+    }
+
+//    @GetMapping("/file/videos/{videoId}/playlist.m3u8")
+//    public ResponseEntity<Object> redirectToPlaylist(@PathVariable String videoId) throws Exception {
+//        return fileManagerService.downloadFile(videoId, "playlist.m3u8");
+//    }
+
 }

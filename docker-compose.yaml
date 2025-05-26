@@ -27,6 +27,14 @@ services:
       - mongo-data:/data/db
     restart: unless-stopped
 
+  shaka-packager:
+    image: google/shaka-packager:latest
+    container_name: shaka-packager
+    entrypoint: [ "tail", "-f", "/dev/null" ] # Keeps container running
+    volumes:
+      - ./videos:/videos  # Shared folder for input/output
+    restart: unless-stopped
+
 volumes:
   minio-data:
   mongo-data:
