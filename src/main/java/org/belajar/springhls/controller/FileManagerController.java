@@ -33,11 +33,11 @@ public class FileManagerController {
             return fileManagerService.downloadFile(videoId, fileName);
     }
 
-    @GetMapping("/key/{keyName:.+}")
-    public ResponseEntity<Void> streamHlsFile(
-            @PathVariable String keyName) throws Exception {
-        return fileManagerService.downloadKey(keyName);
+    @GetMapping("/keys/{videoId}")
+    public ResponseEntity<Object> getKey(@PathVariable String videoId) throws Exception {
+        return fileManagerService.downloadKey(videoId);
     }
+
 
 //    @GetMapping("/file/videos/{videoId}/playlist.m3u8")
 //    public ResponseEntity<Object> redirectToPlaylist(@PathVariable String videoId) throws Exception {

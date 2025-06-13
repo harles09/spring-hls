@@ -1,5 +1,6 @@
 package org.belajar.springhls.service;
 
+import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.http.Method;
@@ -11,7 +12,9 @@ import org.belajar.springhls.dto.request.RequestFileManager;
 import org.belajar.springhls.model.FileManager;
 import org.belajar.springhls.repository.FileManagerRepository;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -20,7 +23,6 @@ import java.io.*;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -59,35 +61,43 @@ public class FileManagerService {
         log.info("videoId:{}", videoId);
         String objectName = videoId + "/" + fileName;
 
-        String url = minioClient.getPresignedObjectUrl(
-                GetPresignedObjectUrlArgs.builder()
-                        .method(Method.GET)
+        InputStream is = minioClient.getObject(
+                GetObjectArgs.builder()
                         .bucket(bucketName)
                         .object(objectName)
-                        .expiry(60 * 10) // 10 minutes
                         .build());
 
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(url))
-                .build();
+        MediaType contentType;
+        if (fileName.endsWith(".m3u8")) {
+            contentType = MediaType.parseMediaType("application/x-mpegURL");
+        } else if (fileName.endsWith(".ts")) {
+            contentType = MediaType.parseMediaType("video/MP2T");
+        } else if (fileName.endsWith(".key")) {
+            contentType = MediaType.APPLICATION_OCTET_STREAM;
+        } else {
+            contentType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        byte[] bytes = is.readAllBytes();
+
+        log.info("Read playlist.m3u8: {} bytes", bytes.length);
+
+        return ResponseEntity.ok()
+                .contentType(contentType)
+                .header("Access-Control-Allow-Origin", "*")
+                .body(new InputStreamResource(is));
     }
 
-    public ResponseEntity<Void> downloadKey(String keyName) throws Exception {
-        String objectName = keyName;
-
-        String presignedUrl = minioClient.getPresignedObjectUrl(
-                GetPresignedObjectUrlArgs.builder()
-                        .method(Method.GET)
-                        .bucket(bucketName)
-                        .object(objectName)
-                        .expiry(60 * 10) // valid for 10 minutes
-                        .build());
-
-        // Redirect (HTTP 302) the client straight to the presigned URL
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(presignedUrl))
-                .build();
+    public ResponseEntity<Object> downloadKey(String keyName) throws Exception {
+        try (InputStream stream = minioUtils.getFile(bucketName, keyName+"/key.key")) {
+            byte[] keyBytes = stream.readAllBytes();
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .body(keyBytes);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
+
 
     public String handleUpload(RequestFileManager request) throws Exception {
         String originalFilename = request.getFile().getOriginalFilename();
@@ -98,7 +108,7 @@ public class FileManagerService {
         fileManager.setUploadedBy(request.getUploadedBy());
         fileManager.setDescription(request.getDescription());
         fileManager.setUploadTime(LocalDateTime.now());
-        fileManager.setFilePath(fileName.replace(".mp4", "") + "/playlist.m3u8"); // example path
+        fileManager.setFilePath(fileName.replace(".mp4", "") + "/playlist.m3u8");
         fileRepository.save(fileManager);
 
         Path tempDir = Files.createTempDirectory("video-upload");
@@ -121,19 +131,34 @@ public class FileManagerService {
             return "Shaka packaging failed";
         }
 
+        String videoFolder = fileName.replace(".mp4", "");
         File[] hlsFiles = hlsOutputDir.toFile().listFiles();
         if (hlsFiles != null) {
             for (File hlsFile : hlsFiles) {
                 try (InputStream is = new FileInputStream(hlsFile)) {
-                    String objectName = fileName.replace(".mp4", "") + "/" + hlsFile.getName();
+                    String objectName = videoFolder + "/" + hlsFile.getName();
                     minioUtils.uploadFile(bucketName, objectName, is);
                 }
             }
         }
+        File keyFile = new File(hlsOutputDir.toFile(), "key.key");
+        log.info("Looking for key.key at: {}", keyFile.getAbsolutePath());
+
+        if (keyFile.exists()) {
+            log.info("key.key found! Uploading to MinIO...");
+            String keyObjectName = videoFolder + "/key.key";
+            try (InputStream keyStream = new FileInputStream(keyFile)) {
+                minioUtils.uploadFile(bucketName, keyObjectName, keyStream);
+            }
+        } else {
+            log.warn("key.key NOT FOUND at: {}", keyFile.getAbsolutePath());
+        }
+
 
         FileUtils.deleteDirectory(tempDir.toFile());
         return "Success";
     }
+
 
 
 
@@ -202,7 +227,7 @@ public class FileManagerService {
 
         String aesKeyHex = loadAesKeyFromResources();
 
-        String keyUri = "http://localhost:8080/keys/aes-128.key";
+        String keyUri = "http://localhost:8080/keys/key.key";
         String keyIdHex = generateHexKeyId();
 
         if (!aesKeyHex.matches("[0-9a-fA-F]{32}")) {
@@ -230,8 +255,8 @@ public class FileManagerService {
 
         String packagerCmd = String.format(
                 "packager " +
-                        "input=/input/%s,stream=video,format=ts,segment_template=/output/video_$$$$Number$$$$.ts,playlist_name=video.m3u8 " +
-                        "input=/input/%s,stream=audio,format=ts,segment_template=/output/audio_$$$$Number$$$$.ts,playlist_name=audio.m3u8 " +
+                        "input=/input/%s,stream=video,format=ts,segment_template=/output/video_\\$Number\\$.ts,playlist_name=video.m3u8 " +
+                        "input=/input/%s,stream=audio,format=ts,segment_template=/output/audio_\\$Number\\$.ts,playlist_name=audio.m3u8 " +
                         "--enable_raw_key_encryption " +
                         "--keys key_id=%s:key=%s " +
                         "--hls_key_uri=%s " +
@@ -242,11 +267,6 @@ public class FileManagerService {
                 aesKeyHex,
                 keyUri
         );
-
-
-
-
-
 
 
         log.info(packagerCmd);
@@ -271,11 +291,26 @@ public class FileManagerService {
         }
 
         int exitCode = process.waitFor();
+        byte[] keyBytes = hexStringToByteArray(aesKeyHex);
+        File keyFile = new File(outputDir, "key.key");
+        Files.write(keyFile.toPath(), keyBytes);
+
         return exitCode == 0 ? "Success" : "Fail";
     }
 
+    private byte[] hexStringToByteArray(String s) {
+        int len = s.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
+                    + Character.digit(s.charAt(i+1), 16));
+        }
+        return data;
+    }
+
+
     public String loadAesKeyFromResources() throws IOException {
-        try (InputStream is = getClass().getClassLoader().getResourceAsStream("keys/aes-128.key")) {
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream("keys/key.key")) {
             if (is == null) throw new FileNotFoundException("Key not found in resources");
             byte[] keyBytes = is.readNBytes(16);
             if (keyBytes.length != 16) throw new IOException("Invalid AES-128 key length");

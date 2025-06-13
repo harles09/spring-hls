@@ -107,6 +107,17 @@ public class MinioUtils {
     }
 
     @SneakyThrows(Exception.class)
+    public InputStream getFile(String bucketName, String objectName) throws Exception {
+        return minioClient.getObject(
+                GetObjectArgs.builder()
+                        .bucket(bucketName)
+                        .object(objectName)
+                        .build()
+        );
+    }
+
+
+    @SneakyThrows(Exception.class)
     public List<String> getAllObjectsNameByPrefix(String bucketName,
                                                   String prefix,
                                                   boolean recursive) {
